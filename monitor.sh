@@ -1,60 +1,35 @@
 #!/bin/bash
-#echo "linux health monitor script is working"
-LOG_FILE="$(pwd)/logs/health-$(date '+%Y-%m-%d').log"
-echo "Health check at: $(date)" >> "$LOG_FILE"
+# Linoox health monitoring script
 
 
-# CPU load averages
-LOAD_AVG=$(uptime | awk -F 'load average: ' '{print $2}')
+set -euo pipefail
 
-# Memory usage (used / total)
-MEMORY_USAGE=$(free -h | awk 'NR==2 {print $3 "/" $2}')
+#Config
+LOG_DIR="./logs"
+LOG_FILE="$LOG_DIR/health-$(date '+%Y-%m-%d').log"
+TOP_N=5
 
-# Disk usage for root filesystem
-DISK_USAGE=$(df -h / | awk 'NR==2 {print $3 "/" $2 " (" $5 " used)"}')
+mkdir -p "$LOG_DIR"
 
-{
-  echo "Uptime:       $(uptime -p)"
-  echo "Load average: $LOAD_AVG"
-  echo "Memory:       $MEMORY_USAGE"
-  echo "Disk (/):     $DISK_USAGE"
-  echo
-} >> "$LOG_FILE"
+#Metrics
+DATE_STR=$(date '+%Y-%m-%d %H:%M:%S')
+UPTIME=$(uptime -p)
+LOAD_AVG=$(awk '{print $1, $2, $3}' /proc/loadavg)
+MEMORY_USAGE=$(free -m | awk 'NR==2 {printf "%sMB/%sMB", $3, $2}')
+DISK_USAGE=$(df -h / | awk 'NR==2 {printf "%s/%s (%s used)", $3, $2, $5}')
 
-# Top 5 processes by CPU usage
-TOP_CPU=$(ps -eo pid,comm,%cpu,%mem --sort=-%cpu | head -n 6)
+#Top procs
+TOP_CPU=$(ps -eo comm,%cpu,%mem --sort=-%cpu | head -n $((TOP_N+1)) | tail -n $TOP_N | awk '{printf "%s(CPU:%s%% MEM:%s%%), ", $1,$2,$3}')
+TOP_MEM=$(ps -eo comm,%cpu,%mem --sort=-%mem | head -n $((TOP_N+1)) | tail -n $TOP_N | awk '{printf "%s(CPU:%s%% MEM:%s%%), ", $1,$2,$3}')
 
-{
-  echo "Top 5 processes by CPU:"
-  echo "$TOP_CPU"
-  echo
-} >> "$LOG_FILE"
+#Logging
+echo "Health checked at: $DATE_STR *******************" >> "$LOG_FILE"
+echo "Uptime: $UPTIME | Load: $LOAD_AVG | Memory: $MEMORY_USAGE | Disk: $DISK_USAGE" >> "$LOG_FILE"
+echo "Top $TOP_N Processes by CPU: $TOP_CPU" >> "$LOG_FILE"
+echo "Top $TOP_N Processes by MEM: $TOP_MEM" >> "$LOG_FILE"
 
-# Top 5 processes by CPU usage
-TOP_CPU=$(ps -eo pid,comm,%cpu,%mem --sort=-%cpu | head -n 6)
-
-{
-  echo "Top 5 processes by CPU:"
-  echo "$TOP_CPU"
-  echo
-} >> "$LOG_FILE"
-
-# Top 5 processes by Memory usage
-TOP_MEM=$(ps -eo pid,comm,%cpu,%mem --sort=-%mem | head -n 6)
-
-{
-  echo "Top 5 processes by Memory:"
-  echo "$TOP_MEM"
-  echo
-} >> "$LOG_FILE"
-
-# Simple network reachability check (Google DNS)
-PING_RESULT=$(ping -c 2 8.8.8.8 2>/dev/null | tail -n 2)
-
-{
-  echo "Ping check (8.8.8.8):"
-  echo "$PING_RESULT"
-  echo
-  echo "----------------------------------------------"
-  echo
-} >> "$LOG_FILE"
+# NOTE: I intentionally didnt perform network check as i believe:
+#1- Pinging untrusted servers is unnecessary for local system health monitoring
+#2- I dont trust sending UNNESSARY traffic to external servers (especially google) without explicit user consent
+#3- What if the network is accidently unmasked?
+#4- Users who need network monitoring should configure their own trusted servers
